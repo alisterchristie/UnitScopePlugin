@@ -19,6 +19,7 @@ type
   TUnitScopeAdder = class(TNotifierObject, IOTAWizard)
   private
     FUnitMap: TDictionary<string, string>; // LowerCase short name -> fully qualified name
+    FBlockedNames: TDictionary<string, Boolean>; // Unscoped unit names that should not be remapped
     FMenuItem: TMenuItem;
     procedure BuildUnitMap;
     procedure CollectUnitsFromPath(const APath: string);
@@ -34,7 +35,6 @@ type
     procedure MenuClick(Sender: TObject);
     procedure InstallMenu;
     procedure UninstallMenu;
-    class function GetBuiltInMappings: TArray<TArray<string>>; static;
   public
     constructor Create;
     destructor Destroy; override;
@@ -60,17 +60,14 @@ constructor TUnitScopeAdder.Create;
 begin
   inherited Create;
   FUnitMap := TDictionary<string, string>.Create;
-
-  // Load built-in mappings first
-  for var Mapping in GetBuiltInMappings do
-    FUnitMap.AddOrSetValue(LowerCase(Mapping[0]), Mapping[1]);
-
+  FBlockedNames := TDictionary<string, Boolean>.Create;
   InstallMenu;
 end;
 
 destructor TUnitScopeAdder.Destroy;
 begin
   UninstallMenu;
+  FBlockedNames.Free;
   FUnitMap.Free;
   inherited;
 end;
@@ -159,7 +156,8 @@ var
   PathList: string;
   BDSDir, PlatformDir: string;
 begin
-  Exit;  //only use the standard list
+  FUnitMap.Clear;
+  FBlockedNames.Clear;
   // 1. Gather library paths from IDE environment options
   if Supports(BorlandIDEServices, IOTAServices, Services) then
   begin
@@ -192,6 +190,11 @@ begin
   Project := GetActiveProject;
   if Assigned(Project) then
   begin
+    // Scan the project's own directory first
+    var ProjectDir := TPath.GetDirectoryName(Project.FileName);
+    if (ProjectDir <> '') and TDirectory.Exists(ProjectDir) then
+      CollectUnitsFromPath(ProjectDir);
+
     ProjectOptions := Project.ProjectOptions;
     if Assigned(ProjectOptions) then
     begin
@@ -256,8 +259,15 @@ begin
       if LastDot >= 0 then
         ShortName := ShortName.Substring(LastDot + 1);
 
-      // Map: lowercase short name -> fully qualified name
-      FUnitMap.AddOrSetValue(LowerCase(ShortName), BaseName);
+      // Only add mapping if not blocked by an unscoped unit with the same name
+      if not FBlockedNames.ContainsKey(LowerCase(ShortName)) then
+        FUnitMap.AddOrSetValue(LowerCase(ShortName), BaseName);
+    end
+    else
+    begin
+      // Unscoped file exists - block this name from being remapped
+      FBlockedNames.AddOrSetValue(LowerCase(BaseName), True);
+      FUnitMap.Remove(LowerCase(BaseName));
     end;
   end;
 end;
@@ -694,160 +704,6 @@ begin
   Result := [];
   AEndPos := AStartPos;
 end;
-
-class function TUnitScopeAdder.GetBuiltInMappings: TArray<TArray<string>>;
-begin
-  Result := [
-    // System scope
-    ['SysUtils',           'System.SysUtils'],
-    ['Classes',            'System.Classes'],
-    ['Types',              'System.Types'],
-    ['TypInfo',            'System.TypInfo'],
-    ['Variants',           'System.Variants'],
-    ['VarUtils',           'System.VarUtils'],
-    ['StrUtils',           'System.StrUtils'],
-    ['DateUtils',          'System.DateUtils'],
-    ['IOUtils',            'System.IOUtils'],
-    ['Math',               'System.Math'],
-    ['Masks',              'System.Masks'],
-    ['SyncObjs',           'System.SyncObjs'],
-    ['Contnrs',            'System.Contnrs'],
-    ['IniFiles',           'System.IniFiles'],
-    ['Registry',           'System.Win.Registry'],
-    ['Character',          'System.Character'],
-    ['RegularExpressions', 'System.RegularExpressions'],
-    ['Rtti',               'System.Rtti'],
-    ['NetEncoding',        'System.NetEncoding'],
-    ['JSON',               'System.JSON'],
-    ['Generics.Collections','System.Generics.Collections'],
-    ['Generics.Defaults',  'System.Generics.Defaults'],
-    ['Threading',          'System.Threading'],
-    ['Actions',            'System.Actions'],
-    ['ImageList',          'System.ImageList'],
-    ['UITypes',            'System.UITypes'],
-    ['Win.ComObj',         'System.Win.ComObj'],
-    ['ComObj',             'System.Win.ComObj'],
-    ['ActiveX',            'Winapi.ActiveX'],
-    ['AnsiStrings',        'System.AnsiStrings'],
-    ['WideStrUtils',       'System.WideStrUtils'],
-    ['ZLib',               'System.ZLib'],
-    ['Diagnostics',        'System.Diagnostics'],
-    ['TimeSpan',           'System.TimeSpan'],
-    ['Hash',               'System.Hash'],
-    ['RTLConsts',          'System.RTLConsts'],
-    ['MaskUtils',          'System.MaskUtils'],
-    ['WideStrings',        'System.WideStrings'],
-
-    // Winapi scope
-    ['Windows',            'Winapi.Windows'],
-    ['Messages',           'Winapi.Messages'],
-    ['ShellAPI',           'Winapi.ShellAPI'],
-    ['ShlObj',             'Winapi.ShlObj'],
-    ['WinInet',            'Winapi.WinInet'],
-    ['WinSock',            'Winapi.WinSock'],
-    ['CommCtrl',           'Winapi.CommCtrl'],
-    ['CommDlg',            'Winapi.CommDlg'],
-    ['MMSystem',           'Winapi.MMSystem'],
-    ['TlHelp32',           'Winapi.TlHelp32'],
-    ['PsAPI',              'Winapi.PsAPI'],
-    ['WinSvc',             'Winapi.WinSvc'],
-    ['GDIPAPI',            'Winapi.GDIPAPI'],
-    ['GDIPOBJ',            'Winapi.GDIPOBJ'],
-    ['Winspool',           'Winapi.Winspool'],
-    ['RichEdit',           'Winapi.RichEdit'],
-    ['Imm',                'Winapi.Imm'],
-    ['DxgiFormat',         'Winapi.DxgiFormat'],
-    ['D3D11',              'Winapi.D3D11'],
-    ['MSXML',              'Winapi.msxml'],
-    ['SHFolder',           'Winapi.SHFolder'],
-    ['MAPI',               'Winapi.MAPI'],
-    // Vcl scope
-    ['Forms',              'Vcl.Forms'],
-    ['Controls',           'Vcl.Controls'],
-    ['Graphics',           'Vcl.Graphics'],
-    ['Dialogs',            'Vcl.Dialogs'],
-    ['StdCtrls',           'Vcl.StdCtrls'],
-    ['ExtCtrls',           'Vcl.ExtCtrls'],
-    ['ComCtrls',           'Vcl.ComCtrls'],
-    ['Grids',              'Vcl.Grids'],
-    ['Buttons',            'Vcl.Buttons'],
-    ['Menus',              'Vcl.Menus'],
-    ['ActnList',           'Vcl.ActnList'],
-    ['ImgList',            'Vcl.ImgList'],
-    ['ToolWin',            'Vcl.ToolWin'],
-    ['Clipbrd',            'Vcl.Clipbrd'],
-    ['Printers',           'Vcl.Printers'],
-    ['DBCtrls',            'Vcl.DBCtrls'],
-    ['DBGrids',            'Vcl.DBGrids'],
-    ['Mask',               'Vcl.Mask'],
-    ['FileCtrl',           'Vcl.FileCtrl'],
-    ['Samples',            'Vcl.Samples.Spin'],
-    ['CheckLst',           'Vcl.CheckLst'],
-    ['ValEdit',            'Vcl.ValEdit'],
-    ['OleCtrls',           'Vcl.OleCtrls'],
-    ['Themes',             'Vcl.Themes'],
-    ['Styles',             'Vcl.Styles'],
-    ['CategoryButtons',    'Vcl.CategoryButtons'],
-    ['ButtonGroup',        'Vcl.ButtonGroup'],
-    ['Ribbon',             'Vcl.Ribbon'],
-    ['AppEvnts',           'Vcl.AppEvnts'],
-    ['ExtDlgs',            'Vcl.ExtDlgs'],
-    ['ActnMan',            'Vcl.ActnMan'],
-    ['ActnCtrls',          'Vcl.ActnCtrls'],
-    ['PlatformDefaultStyleActnCtrls', 'Vcl.PlatformDefaultStyleActnCtrls'],
-    ['AutoComplete',       'Vcl.AutoComplete'],
-    ['VirtualImage',       'Vcl.VirtualImage'],
-    ['BaseImageCollection','Vcl.BaseImageCollection'],
-    ['ImageCollection',    'Vcl.ImageCollection'],
-    ['NumberBox',          'Vcl.NumberBox'],
-    ['WinXCtrls',          'Vcl.WinXCtrls'],
-    ['WinXPanels',         'Vcl.WinXPanels'],
-    ['WinXCalendars',      'Vcl.WinXCalendars'],
-    ['Direct2D',           'Vcl.Direct2D'],
-    ['VDBConsts',          'Vcl.VDBConsts'],
-    ['pngImage',           'Vcl.Imaging.pngImage'],
-    ['GraphUtil',          'Vcl.GraphUtil'],
-    ['Consts',             'Vcl.Consts'],
-    ['jpeg',               'Vcl.Imaging.jpeg'],
-    ['GIFimg',             'Vcl.Imaging.GIFimg'],
-    ['XPStyleActnCtrls',   'Vcl.XPStyleActnCtrls'],
-    ['ActnPopup',          'Vcl.ActnPopup'],
-    ['StdActns',           'Vcl.StdActns'],
-    ['ComStrs',            'Vcl.ComStrs'],
-    ['DDEMan',             'Vcl.DDEMan'],
-
-    // Data scope
-    ['DB',                 'Data.DB'],
-    ['DBXCommon',          'Data.DBXCommon'],
-    ['SqlExpr',            'Data.SqlExpr'],
-    ['FMTBcd',             'Data.FMTBcd'],
-    ['DBCommon',           'Data.DBCommon'],
-    ['DBConnAdmin',        'Data.DBConnAdmin'],
-    // Datasnap
-    ['DSServer',           'Datasnap.DSServer'],
-    ['DSCommonServer',     'Datasnap.DSCommonServer'],
-    ['DBClient',           'Datasnap.DBClient'],
-    ['DSIntf',             'Datasnap.DSIntf'],
-    ['MConnect',           'Datasnap.Win.MConnect'],
-    ['ObjBrkr',            'Datasnap.Win.ObjBrkr'],
-    // Xml scope
-    ['XMLDoc',             'Xml.XMLDoc'],
-    ['XMLIntf',            'Xml.XMLIntf'],
-    ['xmldom',             'Xml.xmldom'],
-    ['XMLConst',           'Xml.XMLConst'],
-    // Soap scope
-    ['InvokeRegistry',     'Soap.InvokeRegistry'],
-    ['Rio',                'Soap.Rio'],
-    // Web/Indy
-    ['IdHTTP',             'IdHTTP'],
-    ['IdTCPClient',        'IdTCPClient'],
-    ['HTTPApp',            'Web.HTTPApp'],
-    ['WebReq',             'Web.WebReq'],
-    // DUnitX / testing
-    ['TestFramework',      'TestFramework']
-  ];
-end;
-
 
 var
   WizardIndex: Integer = -1;
