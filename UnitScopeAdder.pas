@@ -74,7 +74,7 @@ end;
 
 function TUnitScopeAdder.GetIDString: string;
 begin
-  Result := 'CodeGearGuru.UnitScopeAdder';
+  Result := 'LearnDelphi.tv.UnitScopeAdder';
 end;
 
 function TUnitScopeAdder.GetName: string;
