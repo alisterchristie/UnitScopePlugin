@@ -25,7 +25,9 @@ uses
 - Processes both interface and implementation `uses` clauses
 - Leaves already-scoped unit names unchanged
 - Handles comments and `in 'filename'` clauses correctly
-- Covers ~130 common units across System, Winapi, Vcl, Data, Xml, Soap, and Datasnap scopes
+- Dynamically discovers unit scope mappings by scanning IDE library paths and BDS directories
+- Respects project-local units — if your project has its own `Dialogs.pas`, it won't be rewritten to `Vcl.Dialogs`
+- Works correctly in project groups by scoping to the project that owns the current file
 
 ## Installation
 

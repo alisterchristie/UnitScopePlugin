@@ -22,9 +22,10 @@ The entire plugin is a single unit (`UnitScopeAdder.pas`) implementing `IOTAWiza
 
 - **Registration**: The wizard is registered via `IOTAWizardServices.AddWizard` in the `initialization` section (not via `Register` procedure).
 - **Menu integration**: Installs "Add Unit Scope Names" under the Tools menu with shortcut Ctrl+Alt+Shift+S.
-- **Unit mapping**: Uses a hardcoded dictionary (`GetBuiltInMappings`) mapping ~130 short unit names to their fully-qualified equivalents (System.*, Winapi.*, Vcl.*, Data.*, Xml.*, etc.).
+- **Unit mapping**: Dynamically discovered by `BuildUnitMap` which scans IDE library/browsing paths, BDS directories, and the owning project's directory and search paths for scoped .pas/.dcu files.
+- **Blocked names**: Unscoped .pas/.dcu files found during scanning block that name from being remapped, preventing false positives when a project has its own unit with the same name as a scoped RTL/VCL unit (e.g. a project-local `Dialogs.pas` won't be rewritten to `Vcl.Dialogs`).
+- **Project ownership**: In a project group, the plugin determines which project owns the current file and only scans that project's paths for blockers, so unscoped units in sibling projects don't interfere.
 - **Source parsing**: Custom parser in `AddScopesToUsesClause` handles Delphi comments (`//`, `{}`, `(**)`) and string literals while locating and transforming `uses` clauses.
-- **Dynamic scanning** (`BuildUnitMap`): Code exists to scan IDE library/browsing paths and project search paths for .pas/.dcu files, but is currently disabled (`Exit` at the top of the method) — only built-in mappings are active.
 
 ## Key Design Decisions
 
