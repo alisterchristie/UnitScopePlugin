@@ -149,7 +149,9 @@ end;
 procedure TUnitScopeAdder.BuildUnitMap;
 var
   Services: IOTAServices;
+  ModuleServices: IOTAModuleServices;
   EnvOptions: IOTAEnvironmentOptions;
+  ProjectGroup: IOTAProjectGroup;
   Project: IOTAProject;
   ProjectOptions: IOTAProjectOptions;
   Paths: TStringDynArray;
@@ -186,25 +188,66 @@ begin
     end;
   end;
 
-  // 2. Gather search paths from the active project
-  Project := GetActiveProject;
-  if Assigned(Project) then
+  // 2. Find the project that owns the current module and scan its paths
+  if Supports(BorlandIDEServices, IOTAModuleServices, ModuleServices) then
   begin
-    // Scan the project's own directory first
-    var ProjectDir := TPath.GetDirectoryName(Project.FileName);
-    if (ProjectDir <> '') and TDirectory.Exists(ProjectDir) then
-      CollectUnitsFromPath(ProjectDir);
+    Project := nil;
+    var CurrentModule := ModuleServices.CurrentModule;
 
-    ProjectOptions := Project.ProjectOptions;
-    if Assigned(ProjectOptions) then
+    // Find the project group and determine which project owns the current file
+    for var I := 0 to ModuleServices.ModuleCount - 1 do
     begin
-      PathList := VarToStr(ProjectOptions.Values['SrcDir']);
-      Paths := SplitString(PathList, ';');
-      for var P in Paths do
+      if Supports(ModuleServices.Modules[I], IOTAProjectGroup, ProjectGroup) then
       begin
-        var Expanded := Trim(P);
-        if Expanded <> '' then
-          CollectUnitsFromPath(Expanded);
+        if Assigned(CurrentModule) then
+        begin
+          for var J := 0 to ProjectGroup.ProjectCount - 1 do
+          begin
+            var Proj := ProjectGroup.Projects[J];
+            if not Assigned(Proj) then
+              Continue;
+            for var K := 0 to Proj.GetModuleCount - 1 do
+            begin
+              if SameText(Proj.GetModule(K).FileName, CurrentModule.FileName) then
+              begin
+                Project := Proj;
+                Break;
+              end;
+            end;
+            if Assigned(Project) then
+              Break;
+          end;
+        end;
+        // Fall back to active project if current file not found in any project
+        if not Assigned(Project) then
+          Project := ProjectGroup.ActiveProject;
+        Break;
+      end;
+    end;
+
+    // Fall back to GetActiveProject if no project group exists
+    if not Assigned(Project) then
+      Project := GetActiveProject;
+
+    if Assigned(Project) then
+    begin
+      // Scan the project's own directory
+      var ProjectDir := TPath.GetDirectoryName(Project.FileName);
+      if (ProjectDir <> '') and TDirectory.Exists(ProjectDir) then
+        CollectUnitsFromPath(ProjectDir);
+
+      // Scan the project's search paths
+      ProjectOptions := Project.ProjectOptions;
+      if Assigned(ProjectOptions) then
+      begin
+        PathList := VarToStr(ProjectOptions.Values['SrcDir']);
+        Paths := SplitString(PathList, ';');
+        for var P in Paths do
+        begin
+          var Expanded := Trim(P);
+          if Expanded <> '' then
+            CollectUnitsFromPath(Expanded);
+        end;
       end;
     end;
   end;
